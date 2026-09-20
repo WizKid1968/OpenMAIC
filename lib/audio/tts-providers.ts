@@ -276,7 +276,11 @@ async function generateOpenAITTS(
   text: string,
   signal: AbortSignal,
 ): Promise<TTSGenerationResult> {
-  const baseUrl = config.baseUrl || TTS_PROVIDERS['openai-tts'].defaultBaseUrl;
+  const baseUrl = (config.baseUrl || TTS_PROVIDERS['openai-tts'].defaultBaseUrl || '').replace(
+    /\/+$/,
+    '',
+  );
+  const modelId = normalizeOpenRouterTTSModelId(baseUrl, config.modelId || 'gpt-4o-mini-tts');
 
   // Use gpt-4o-mini-tts for best quality and intelligent realtime applications
   const response = await fetch(`${baseUrl}/audio/speech`, {
@@ -286,10 +290,14 @@ async function generateOpenAITTS(
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({
-      model: config.modelId || 'gpt-4o-mini-tts',
+      model: modelId,
       input: text,
       voice: config.voice,
       speed: config.speed || 1.0,
+      // OpenRouter defaults to headerless PCM, which cannot be stored and
+      // served as an MP3. OpenAI already defaults to MP3, so this is safe for
+      // both the built-in provider and custom OpenAI-compatible providers.
+      response_format: 'mp3',
     }),
     signal,
   });
@@ -307,6 +315,20 @@ async function generateOpenAITTS(
     audio: new Uint8Array(arrayBuffer),
     format,
   };
+}
+
+/**
+ * Repair the display label persisted by the early OpenRouter TTS setup flow.
+ * OpenRouter accepts the wire model id, not its human-readable catalog name.
+ */
+export function normalizeOpenRouterTTSModelId(baseUrl: string, modelId: string): string {
+  if (!/^https:\/\/openrouter\.ai\/api\/v1$/i.test(baseUrl)) return modelId;
+
+  const normalized = modelId.trim().toLowerCase();
+  if (normalized === 's2.1 pro free' || normalized === 'fish audio: s2.1 pro free (free)') {
+    return 'fish-audio/s2.1-pro-free:free';
+  }
+  return modelId;
 }
 
 /**

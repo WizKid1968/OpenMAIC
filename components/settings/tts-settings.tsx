@@ -492,6 +492,27 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                 />
               </div>
             </div>
+            {isCustom && (
+              <div className="space-y-2">
+                <Label className="text-sm">{t('settings.defaultModel')}</Label>
+                <Input
+                  name={`tts-model-${selectedProviderId}`}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="fish-audio/s2.1-pro-free:free"
+                  value={providerConfig?.modelId || ''}
+                  onChange={(e) =>
+                    setTTSProviderConfig(selectedProviderId, { modelId: e.target.value })
+                  }
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.defaultModelHint')}
+                </p>
+              </div>
+            )}
             {requestUrl && (
               <p className="break-all text-xs text-muted-foreground">
                 {t('settings.requestUrl')}: {requestUrl}
