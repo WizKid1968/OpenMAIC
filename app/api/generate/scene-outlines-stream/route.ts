@@ -21,6 +21,7 @@ import {
   formatImagePlaceholder,
   buildVisionUserContent,
   buildOutlinePrompt,
+  isRetryableGenerationError,
   uniquifyMediaElementIds,
   formatTeacherPersonaForPrompt,
 } from '@openmaic/generation';
@@ -40,6 +41,7 @@ import { resolveModelFromRequest } from '@/lib/server/resolve-model';
 import { sortDocumentImagesForVision } from '@/lib/document/bundle';
 import { resolveVisionImagesForPrompt } from '@/lib/persistence/resolve-vision-images';
 import { resolveVocationalActive } from '@/lib/config/feature-flags';
+import { getLlmErrorInfo } from '@/lib/server/llm-error-response';
 const log = createLogger('Outlines Stream');
 
 export const maxDuration = 300;
@@ -637,12 +639,14 @@ export async function POST(req: NextRequest) {
                 stopHeartbeat();
                 return;
               }
-              lastError = error instanceof Error ? error.message : String(error);
+              const providerError = getLlmErrorInfo(error);
+              lastError =
+                providerError?.message || (error instanceof Error ? error.message : String(error));
               log.warn(
                 `Outlines stream error detail (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}): ${lastError}`,
               );
 
-              if (attempt <= MAX_STREAM_RETRIES) {
+              if (attempt <= MAX_STREAM_RETRIES && isRetryableGenerationError(error)) {
                 log.warn(
                   `Stream error (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}), retrying...`,
                   error,
@@ -655,6 +659,10 @@ export async function POST(req: NextRequest) {
                 controller.enqueue(encoder.encode(`data: ${retryEvent}\n\n`));
                 continue;
               }
+              // Authentication, authorization and other permanent provider
+              // failures cannot improve on retry. Preserve the useful provider
+              // diagnosis instead of replacing it with "empty response".
+              break;
             }
           }
 

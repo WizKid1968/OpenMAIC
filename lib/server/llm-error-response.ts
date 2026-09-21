@@ -48,7 +48,7 @@ function statusFromError(error: unknown, seen = new Set<unknown>()): number | un
 
 function messageForStatus(status: number): string {
   if (status === 401 || status === 403) {
-    return 'Upstream authentication or authorization failed.';
+    return 'LLM provider authentication failed. Check the API key for the selected provider.';
   }
   if (status === 404) return 'Upstream endpoint not found.';
   if (status === 429) return 'Upstream rate limit reached. Please try again shortly.';
@@ -56,19 +56,32 @@ function messageForStatus(status: number): string {
   return 'Upstream provider rejected the request.';
 }
 
+export interface LlmErrorInfo {
+  status: number;
+  code: 'RATE_LIMITED' | 'UPSTREAM_ERROR';
+  message: string;
+}
+
+/** Safe provider-error metadata for JSON and streaming responses. */
+export function getLlmErrorInfo(error: unknown): LlmErrorInfo | undefined {
+  const status = statusFromError(error);
+  if (status === undefined) return undefined;
+  return {
+    status,
+    code: status === 429 ? 'RATE_LIMITED' : 'UPSTREAM_ERROR',
+    message: messageForStatus(status),
+  };
+}
+
 /**
  * Preserve a provider's HTTP semantics for client retry classification without
  * exposing provider response bodies, URLs, or credential-adjacent details.
  */
 export function llmApiError(error: unknown) {
-  const status = statusFromError(error);
-  if (status === undefined) {
+  const info = getLlmErrorInfo(error);
+  if (!info) {
     return apiError('INTERNAL_ERROR', 500, 'Scene generation failed. Please try again.');
   }
 
-  return apiError(
-    status === 429 ? 'RATE_LIMITED' : 'UPSTREAM_ERROR',
-    status,
-    messageForStatus(status),
-  );
+  return apiError(info.code, info.status, info.message);
 }
