@@ -878,7 +878,11 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         if (!abortRef.current && !pausedByFailureOrAbort) {
           if (hadSceneFailure) {
             // All independent scenes were attempted. Keep failed outlines
-            // available for targeted retry instead of claiming full completion.
+            // visible in the sidebar and available for targeted retry instead
+            // of claiming full completion. They were removed from the live
+            // queue while later scenes ran so one failure could not pin the
+            // progress placeholder at the front of the list.
+            store.getState().setGeneratingOutlines(store.getState().failedOutlines);
             store.getState().setGenerationStatus('paused');
           } else {
             store.getState().setGenerationStatus('completed');
