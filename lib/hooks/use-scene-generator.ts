@@ -68,6 +68,10 @@ type ClientRetryOptions<T> = Partial<
   Omit<GenerationRetryOptions<T>, 'label' | 'shouldRetryResult' | 'signal'>
 >;
 
+// A platform timeout is already a long wait. Keep the total bounded while
+// still allowing transient provider failures to recover.
+const BACKGROUND_SCENE_RETRY_OPTIONS = { maxRetries: 2 } as const;
+
 function getApiHeaders(): HeadersInit {
   const config = getCurrentModelConfig();
   const settings = useSettingsStore.getState();
@@ -718,6 +722,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
               languageDirective: params.languageDirective,
             },
             signal,
+            BACKGROUND_SCENE_RETRY_OPTIONS,
           );
 
         // Pre-warm content fetches (<= parallelConcurrency in flight), keyed by
@@ -749,7 +754,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
           : null;
 
         let pausedByFailureOrAbort = false;
-        let hadContentFailure = false;
+        let hadSceneFailure = false;
         for (const outline of pending) {
           if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
             store.getState().setGenerationStatus('paused');
@@ -780,17 +785,11 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
             }
             store.getState().addFailedOutline(outline);
             options.onSceneFailed?.(outline, contentResult.error || 'Content generation failed');
-            if (contentPromises) {
-              // Parallel: surface the failure but keep going with the other scenes
-              // (their content is already in flight).
-              hadContentFailure = true;
-              removeGeneratingOutline(outline.id);
-              continue;
-            }
-            // Serial: pause the batch (unchanged behaviour).
-            store.getState().setGenerationStatus('paused');
-            pausedByFailureOrAbort = true;
-            break;
+            // A scene is an independent unit. Keep the failed outline available
+            // for targeted retry, but do not strand every later scene.
+            hadSceneFailure = true;
+            removeGeneratingOutline(outline.id);
+            continue;
           }
 
           if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
@@ -813,6 +812,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
               languageDirective: params.languageDirective,
             },
             signal,
+            BACKGROUND_SCENE_RETRY_OPTIONS,
           );
 
           if (actionsResult.success && actionsResult.scene) {
@@ -832,17 +832,22 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
                 scene,
                 params.languageDirective || params.stageInfo.language,
                 signal,
+                BACKGROUND_SCENE_RETRY_OPTIONS,
               );
               if (!ttsResult.success) {
                 if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
                   pausedByFailureOrAbort = true;
                   break;
                 }
-                store.getState().addFailedOutline(outline);
-                options.onSceneFailed?.(outline, ttsResult.error || 'TTS generation failed');
-                store.getState().setGenerationStatus('paused');
-                pausedByFailureOrAbort = true;
-                break;
+                // Content and actions are valid. Preserve the scene without
+                // packaged narration so the course can finish; narration can
+                // be regenerated independently after the provider recovers.
+                log.warn('Scene narration incomplete; preserving silent scene', {
+                  outlineId: outline.id,
+                  order: outline.order,
+                  failedCount: ttsResult.failedCount,
+                  error: ttsResult.error,
+                });
               }
             }
 
@@ -864,16 +869,16 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
             }
             store.getState().addFailedOutline(outline);
             options.onSceneFailed?.(outline, actionsResult.error || 'Actions generation failed');
-            store.getState().setGenerationStatus('paused');
-            pausedByFailureOrAbort = true;
-            break;
+            hadSceneFailure = true;
+            removeGeneratingOutline(outline.id);
+            continue;
           }
         }
 
         if (!abortRef.current && !pausedByFailureOrAbort) {
-          if (hadContentFailure) {
-            // Parallel content phase left some outlines failed but kept going;
-            // surface them for retry instead of signalling a clean completion.
+          if (hadSceneFailure) {
+            // All independent scenes were attempted. Keep failed outlines
+            // available for targeted retry instead of claiming full completion.
             store.getState().setGenerationStatus('paused');
           } else {
             store.getState().setGenerationStatus('completed');

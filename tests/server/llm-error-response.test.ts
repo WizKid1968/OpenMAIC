@@ -28,4 +28,14 @@ describe('LLM provider error responses', () => {
 
     expect(JSON.stringify(getLlmErrorInfo(upstreamError))).not.toContain('secret');
   });
+
+  it('classifies a provider timeout before the platform kills the function', () => {
+    const timeout = new DOMException('The operation timed out', 'TimeoutError');
+
+    expect(getLlmErrorInfo(timeout)).toEqual({
+      status: 504,
+      code: 'UPSTREAM_ERROR',
+      message: 'The LLM provider timed out. The remaining scenes will continue generating.',
+    });
+  });
 });

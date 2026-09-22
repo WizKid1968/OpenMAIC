@@ -261,7 +261,7 @@ describe('scene API retry boundary', () => {
     expect(body).toMatchObject({
       success: false,
       errorCode: 'UPSTREAM_ERROR',
-      error: 'Upstream authentication or authorization failed.',
+      error: 'LLM provider authentication failed. Check the API key for the selected provider.',
     });
   });
 
@@ -326,7 +326,7 @@ describe('scene API retry boundary', () => {
     expect(body).toMatchObject({
       success: false,
       errorCode: 'UPSTREAM_ERROR',
-      error: 'Upstream authentication or authorization failed.',
+      error: 'LLM provider authentication failed. Check the API key for the selected provider.',
     });
   });
 

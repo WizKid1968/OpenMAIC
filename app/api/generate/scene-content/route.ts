@@ -56,6 +56,10 @@ const VISION_RESOLUTION_BUDGET_MS = 15_000;
  */
 const MAX_CONSECUTIVE_UNRESOLVABLE_VISION_IMAGES = 3;
 
+// Finish before Vercel's 300 s function ceiling so the route can return a
+// classified 504 instead of being terminated by the platform mid-response.
+const SCENE_LLM_TIMEOUT_MS = 240_000;
+
 export async function POST(req: NextRequest) {
   let outlineTitle: string | undefined;
   let resolvedModelString: string | undefined;
@@ -119,6 +123,8 @@ export async function POST(req: NextRequest) {
 
     // Detect vision capability
     const hasVision = !!modelInfo?.capabilities?.vision;
+    const timeoutSignal = AbortSignal.timeout(SCENE_LLM_TIMEOUT_MS);
+    const llmSignal = req.signal ? AbortSignal.any([req.signal, timeoutSignal]) : timeoutSignal;
 
     // Vision-aware AI call function. On a server-backed transport the
     // `imageMapping` values are allocated asset ids; the N3 pre-resolution
@@ -152,6 +158,7 @@ export async function POST(req: NextRequest) {
             ],
             maxOutputTokens: modelInfo?.outputWindow,
             maxRetries: 0,
+            abortSignal: llmSignal,
           },
           'scene-content',
           undefined,
@@ -166,6 +173,7 @@ export async function POST(req: NextRequest) {
           prompt: userPrompt,
           maxOutputTokens: modelInfo?.outputWindow,
           maxRetries: 0,
+          abortSignal: llmSignal,
         },
         'scene-content',
         undefined,

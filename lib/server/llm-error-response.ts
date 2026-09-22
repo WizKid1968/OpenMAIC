@@ -64,6 +64,16 @@ export interface LlmErrorInfo {
 
 /** Safe provider-error metadata for JSON and streaming responses. */
 export function getLlmErrorInfo(error: unknown): LlmErrorInfo | undefined {
+  if (
+    error instanceof Error &&
+    (error.name === 'TimeoutError' || /timed?\s*out/i.test(error.message))
+  ) {
+    return {
+      status: 504,
+      code: 'UPSTREAM_ERROR',
+      message: 'The LLM provider timed out. The remaining scenes will continue generating.',
+    };
+  }
   const status = statusFromError(error);
   if (status === undefined) return undefined;
   return {
