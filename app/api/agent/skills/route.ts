@@ -24,11 +24,10 @@ import {
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
-  if (!isAgentRuntimeConfigured()) {
-    return new Response('Not found', { status: 404 });
-  }
   return withRequestOwnerId(req, async (ownerId, responseHeaders) => {
-    const skills = await listSkills(ownerId);
+    // Bundled skills are useful in Settings even without the optional runtime.
+    // Only query owner storage when that runtime is configured.
+    const skills = await listSkills(isAgentRuntimeConfigured() ? ownerId : undefined);
     return NextResponse.json(
       skills.map((s) => ({
         id: s.id,
