@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/config/feature-flags', () => ({
   isAgentRuntimeEnabled: mocks.isAgentRuntimeEnabled,
-  isAgentRuntimeConfigured: mocks.isAgentRuntimeEnabled,
+  isAgentRuntimeConfigured: mocks.isAgentRuntimeConfigured,
 }));
 vi.mock('@/lib/server/agent-runtime/with-owner', () => ({
   withRequestOwnerId: mocks.withRequestOwnerId,
@@ -45,6 +45,7 @@ function runWithOwner(ownerId: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.isAgentRuntimeConfigured.mockReturnValue(true);
   runWithOwner('user:u1');
   mocks.listSkills.mockResolvedValue([
     {
@@ -114,9 +115,20 @@ describe('GET agent skills', () => {
     ]);
   });
 
-  it('returns 404 when the runtime flag is off', async () => {
-    mocks.isAgentRuntimeEnabled.mockReturnValueOnce(false);
-    expect((await GET(request())).status).toBe(404);
-    expect(mocks.listSkills).not.toHaveBeenCalled();
+  it('lists bundled skills without querying owner storage when the runtime is unavailable', async () => {
+    mocks.isAgentRuntimeConfigured.mockReturnValue(false);
+    mocks.listSkills.mockResolvedValue([
+      { id: 'builtin', name: 'builtin', source: 'builtin', constraints: null },
+    ]);
+    const response = await GET(request());
+    expect(response.status).toBe(200);
+    expect(mocks.listSkills).toHaveBeenCalledWith(undefined);
+    await expect(response.json()).resolves.toMatchObject([{ id: 'builtin', source: 'builtin' }]);
+  });
+
+  it('keeps uploads gated when the runtime is unavailable', async () => {
+    mocks.isAgentRuntimeConfigured.mockReturnValue(false);
+    expect((await POST(uploadRequest(new File(['test'], 'SKILL.md')))).status).toBe(404);
+    expect(mocks.createUserSkill).not.toHaveBeenCalled();
   });
 });

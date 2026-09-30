@@ -21,7 +21,6 @@ function zipResponse(id: string, zip: Buffer, headers = new Headers()): Response
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!isAgentRuntimeConfigured()) return new Response('Not found', { status: 404 });
   const { id } = await params;
   if (!isSafeSkillId(id)) return new Response('Invalid skill id', { status: 400 });
 
@@ -32,6 +31,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const builtin = await buildBuiltinSkillZip(id);
   if (builtin) return zipResponse(id, builtin);
 
+  // Files shipped with the app do not need an agent runtime or database.
+  if (!isAgentRuntimeConfigured()) return new Response('Not found', { status: 404 });
   return withRequestOwnerId(req, async (ownerId, responseHeaders) => {
     const skill = await findUserSkill(id, ownerId);
     if (!skill) return new Response('Not found', { status: 404, headers: responseHeaders });
